@@ -1,0 +1,117 @@
+html, body {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: white;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+#camera {
+  display: none;
+}
+
+#cvCanvas {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 1;
+  pointer-events: none; /* IMPORTANT: keeps button clickable */
+
+  /* Maintain intrinsic aspect ratio and scale to fit the viewport */
+  max-width: 100vw;
+  max-height: 100vh;
+  width: auto;
+  height: auto;
+}
+
+#threeCanvas {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 0;
+}
+
+#ui {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 12px;
+  z-index: 10;
+}
+
+#startBtn {
+  padding: 0.5rem 1rem;
+  border-radius: 999px;
+  border: none;
+  background: #222;
+  color: #fff;
+  font-weight: 600;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+}
+
+#status {
+  color: #222;
+  font-size: 0.8rem;
+}
+
+#debugToggle {
+  margin-left: 0.5rem;
+  padding: 0.4rem 0.8rem;
+  border-radius: 999px;
+  border: none;
+  background: #444;
+  color: #fff;
+  font-weight: 600;
+}
+
+#setZeroBtn {
+  margin-left: 0.5rem;
+  padding: 0.4rem 0.8rem;
+  border-radius: 6px;
+  border: none;
+  background: #2b7a2b;
+  color: #fff;
+  font-weight: 600;
+}
+
+#setZeroBtn[disabled] {
+  opacity: 0.45;
+}
+
+#toast {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 72px;
+  z-index: 40;
+  background: rgba(0,0,0,0.85);
+  color: #fff;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+
+#toast.show {
+  opacity: 1;
+}
+
+#debugInfo {
+  position: fixed;
+  left: 12px;
+  top: 12px;
+  z-index: 20;
+  background: rgba(0,0,0,0.6);
+  color: #fff;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  max-width: 280px;
+  white-space: pre-wrap;
+  pointer-events: none;
+}

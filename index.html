@@ -1,0 +1,48 @@
+<!-- index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>SLAM-Lite Plane Grid</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <link rel="stylesheet" href="style.css" />
+  <script src="libs/three.min.js"></script>
+
+  <script>
+    window.__opencvReady = false;
+  
+    var Module = {
+      onRuntimeInitialized: function () {
+        console.log("OpenCV runtime initialized (Module)");
+        window.__opencvReady = true;
+      }
+    };
+  </script>
+
+
+  <script src="libs/opencv.js"></script>
+  <script type="module" src="js/main.js"></script>
+
+</head>
+<body>
+  <!-- Hidden video for camera feed -->
+  <video id="camera" autoplay playsinline muted></video>
+
+  <!-- Canvas for OpenCV processing -->
+  <canvas id="cvCanvas"></canvas>
+
+  <!-- Canvas for Three.js rendering -->
+  <canvas id="threeCanvas"></canvas>
+
+  <div id="ui">
+    <button id="startBtn">Start AR Plane Grid</button>
+    <button id="debugToggle" aria-pressed="false" hidden>Show Debug</button>
+    <button id="setZeroBtn" hidden>Set World Zero</button>
+    <div id="status">Idle</div>
+  </div>
+
+  <div id="toast" hidden aria-hidden="true"></div>
+
+  <div id="debugInfo" aria-hidden="true" hidden></div>
+</body>
+</html>
