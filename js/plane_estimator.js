@@ -28,10 +28,30 @@ export class PlaneEstimator {
 
     if (!bestPlane) return null;
 
+    // Gather inlier indices and compute centroid for the best plane
+    const inlierIndices = this._getInlierIndices(points, bestPlane, threshold);
+    const inlierPoints = inlierIndices.map(i => points[i]);
+
+    let centroid = null;
+    if (inlierPoints.length > 0) {
+      let sx = 0, sy = 0, sz = 0;
+      for (const p of inlierPoints) {
+        sx += p.X; sy += p.Y; sz += p.Z;
+      }
+      centroid = { X: sx / inlierPoints.length, Y: sy / inlierPoints.length, Z: sz / inlierPoints.length };
+    }
+
     // Smooth plane parameters over time
     this.smoothPlane = this._smoothPlane(this.smoothPlane, bestPlane);
 
-    return this.smoothPlane;
+    // Return detailed info for downstream anchoring logic
+    return {
+      plane: this.smoothPlane,
+      inlierIndices,
+      inlierCount: inlierIndices.length,
+      centroid,
+      inlierPoints
+    };
   }
 
   _sampleThree(points) {
@@ -83,6 +103,17 @@ export class PlaneEstimator {
       if (dist < threshold) count++;
     }
     return count;
+  }
+
+  _getInlierIndices(points, plane, threshold) {
+    const { normal, d } = plane;
+    const idx = [];
+    for (let i = 0; i < points.length; i++) {
+      const p = points[i];
+      const dist = Math.abs(normal.x * p.X + normal.y * p.Y + normal.z * p.Z + d);
+      if (dist < threshold) idx.push(i);
+    }
+    return idx;
   }
 
   _smoothPlane(prev, curr) {

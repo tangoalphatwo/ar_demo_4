@@ -47,6 +47,7 @@ window.addEventListener('load', () => {
   let latestPose = null;
 
   let lastPlaneHit = null;
+  let latestPlaneEstimate = null; // { plane, inlierIndices, inlierCount, centroid, inlierPoints } (updated each frame when available) 
 
   // Plane anchoring state
   let candidatePlane = null;
@@ -62,6 +63,11 @@ window.addEventListener('load', () => {
   const ANCHOR_REPLACE_ANGLE = 20 * Math.PI / 180; // replace threshold
   const ANCHOR_REPLACE_DIST = 0.3;
   const PLANE_SMOOTH_ALPHA = 0.2; // smoothing when accumulating candidate
+
+  // Inlier-based checks
+  const MIN_INLIERS = 50; // minimum inliers required to consider anchoring
+  const INLIER_OVERLAP_THRESH = 0.6; // fraction of overlap between consecutive candidate inliers
+  const INLIER_MATCH_DIST = 0.05; // meters: distance threshold to consider same inlier between frames
 
   function projectToScreen(pos) {
     const focal = 600; // legacy fallback
@@ -408,11 +414,39 @@ window.addEventListener('load', () => {
       return;
     }
 
+    function countInlierOverlap(aPoints, bPoints, matchDist) {
+      if (!aPoints || !bPoints || aPoints.length === 0 || bPoints.length === 0) return 0;
+      const md2 = matchDist * matchDist;
+      let matches = 0;
+      for (let i = 0; i < aPoints.length; i++) {
+        const a = aPoints[i];
+        for (let j = 0; j < bPoints.length; j++) {
+          const b = bPoints[j];
+          const dx = a.X - b.X, dy = a.Y - b.Y, dz = a.Z - b.Z;
+          const d2 = dx * dx + dy * dy + dz * dz;
+          if (d2 <= md2) {
+            matches++;
+            break; // count each a at most once
+          }
+        }
+      }
+      return matches / Math.min(aPoints.length, bPoints.length);
+    }
+
     // No anchor yet — compare to current candidate
     if (candidatePlane) {
       const ang = angleBetween(n, candidatePlane.normal);
       const d = dist(c, candidatePlane.center);
-      if (ang < ANCHOR_ANGLE_RAD && d < ANCHOR_DIST) {
+
+      // If both candidates have inlier points, compute overlap
+      let overlap = 1.0;
+      if (candidatePlane.inlierPoints && candidate.inlierPoints) {
+        overlap = countInlierOverlap(candidatePlane.inlierPoints, candidate.inlierPoints, INLIER_MATCH_DIST);
+      }
+
+      console.log(`Candidate compare: ang=${ang.toFixed(3)}, d=${d.toFixed(3)}, overlap=${(overlap*100).toFixed(1)}%, cnt_old=${candidatePlane.inlierPoints ? candidatePlane.inlierPoints.length : 0}, cnt_new=${candidate.inlierPoints ? candidate.inlierPoints.length : 0}`);
+
+      if (ang < ANCHOR_ANGLE_RAD && d < ANCHOR_DIST && overlap >= INLIER_OVERLAP_THRESH) {
         // Stable: increment and smooth
         candidateCount++;
         candidatePlane.center.x = candidatePlane.center.x * (1 - PLANE_SMOOTH_ALPHA) + c.x * PLANE_SMOOTH_ALPHA;
@@ -424,20 +458,33 @@ window.addEventListener('load', () => {
           z: candidatePlane.normal.z * (1 - PLANE_SMOOTH_ALPHA) + n.z * PLANE_SMOOTH_ALPHA
         });
 
+        // Replace inlierPoints with the latest (could be smoothed/merged for more robustness)
+        if (candidate.inlierPoints && candidate.inlierPoints.length > 0) {
+          candidatePlane.inlierPoints = candidate.inlierPoints;
+        }
+
         if (candidateCount >= ANCHOR_MIN_STABLE) {
-          anchoredPlane = { center: { ...candidatePlane.center }, normal: { ...candidatePlane.normal }, age: 0 };
-          candidatePlane = null;
-          candidateCount = 0;
-          console.log('Plane anchored:', anchoredPlane);
-          showToast('Plane anchored');
+          // Only anchor if we have sufficient inlier support
+          const hasEnough = candidatePlane.inlierPoints && candidatePlane.inlierPoints.length >= MIN_INLIERS;
+          if (hasEnough) {
+            anchoredPlane = { center: { ...candidatePlane.center }, normal: { ...candidatePlane.normal }, inlierPoints: candidatePlane.inlierPoints, age: 0 };
+            candidatePlane = null;
+            candidateCount = 0;
+            console.log('Plane anchored:', anchoredPlane, 'inliers:', anchoredPlane.inlierPoints.length);
+            showToast('Plane anchored');
+          } else {
+            // Not enough inliers yet; keep accumulating
+            console.log('Candidate stable but not enough inliers:', candidatePlane.inlierPoints ? candidatePlane.inlierPoints.length : 0);
+          }
         }
       } else {
         // Reset candidate
-        candidatePlane = { center: { ...c }, normal: { ...n } };
+        console.log('Reset candidate -> inliers:', candidate.inlierPoints ? candidate.inlierPoints.length : 0);
+        candidatePlane = { center: { ...c }, normal: { ...n }, inlierPoints: candidate.inlierPoints || null };
         candidateCount = 1;
       }
     } else {
-      candidatePlane = { center: { ...c }, normal: { ...n } };
+      candidatePlane = { center: { ...c }, normal: { ...n }, inlierPoints: candidate.inlierPoints || null };
       candidateCount = 1;
     }
   }
@@ -564,9 +611,12 @@ window.addEventListener('load', () => {
         const slamResult = slam.processFrame(frame);
         // If we have enough 3D points, ask the plane estimator to fit a plane
         if (slamResult && slamResult.mapPoints3D && slamResult.mapPoints3D.length >= 30 && planeEstimator) {
-          const plane = planeEstimator.estimatePlane(slamResult.mapPoints3D);
-          if (plane) {
-            console.log('PlaneEstimator found a plane from triangulated points');
+          const est = planeEstimator.estimatePlane(slamResult.mapPoints3D);
+          if (est) {
+            console.log('PlaneEstimator found a plane from triangulated points (inliers:', est.inlierCount + ')');
+            latestPlaneEstimate = est;
+          } else {
+            latestPlaneEstimate = null;
           }
         }
       }
@@ -669,14 +719,22 @@ window.addEventListener('load', () => {
 
         // Update our plane candidate (prefer estimator's smoothPlane if available)
         let currentCandidate = null;
-        if (planeEstimator && planeEstimator.smoothPlane) {
+        if (latestPlaneEstimate && latestPlaneEstimate.centroid && latestPlaneEstimate.inlierPoints && latestPlaneEstimate.inlierPoints.length > 0) {
+          const p = latestPlaneEstimate.plane;
+          const c = latestPlaneEstimate.centroid;
+          currentCandidate = {
+            center: { x: c.X, y: c.Y, z: c.Z },
+            normal: { x: p.normal.x, y: p.normal.y, z: p.normal.z },
+            inlierPoints: latestPlaneEstimate.inlierPoints
+          };
+          // also maintain backward-compatible lastPlaneHit
+          lastPlaneHit = currentCandidate.center;
+        } else if (planeEstimator && planeEstimator.smoothPlane) {
           const p = planeEstimator.smoothPlane;
           currentCandidate = {
             center: { x: p.point.X, y: p.point.Y, z: p.point.Z },
             normal: { x: p.normal.x, y: p.normal.y, z: p.normal.z }
           };
-          // also maintain backward-compatible lastPlaneHit
-          lastPlaneHit = currentCandidate.center;
         } else if (lastPlaneHit) {
           currentCandidate = { center: lastPlaneHit, normal: { x: 0, y: 1, z: 0 } };
         }
@@ -738,16 +796,17 @@ window.addEventListener('load', () => {
       }
     }
 
-    // Debug overlay: clear and optionally draw the pose marker
+    // Debug overlay: clear and optionally draw the hit marker
     if (debugCtx) {
       // clear using CSS pixel coordinates (context transform maps DPR)
       debugCtx.clearRect(0, 0, debugCanvas.clientWidth, debugCanvas.clientHeight);
 
-      if (latestPose) {
-        const screen = projectWorldToScreen(latestPose.position, latestPose);
+      // Draw a marker at the last plane hit (if available)
+      if (lastPlaneHit) {
+        const screen = projectWorldToScreen(lastPlaneHit, latestPose);
         if (screen) {
           debugCtx.beginPath();
-          debugCtx.arc(screen.x, screen.y, 8, 0, Math.PI * 2);
+          debugCtx.arc(screen.x, screen.y, 6, 0, Math.PI * 2);
           debugCtx.fillStyle = "lime";
           debugCtx.fill();
         }
