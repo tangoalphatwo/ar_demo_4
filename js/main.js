@@ -174,6 +174,13 @@ window.addEventListener('load', () => {
   let prevGray = null;
   let prevPoints = null;
 
+  // Feature tracking / reseeding (for debug dots + pose heuristics)
+  const MAX_FEATURES = 300;
+  const MIN_FEATURES = 80; // when tracked points drop below this, detect more
+  const FEATURE_QUALITY = 0.01;
+  const FEATURE_MIN_DIST = 10;
+  const FEATURE_EXCLUSION_RADIUS = 12; // pixels; prevents re-detecting on top of existing points
+
   // Track if loadedmetadata fired before OpenCV became available
   let videoMetadataPending = false;
   videoEl.addEventListener('loadedmetadata', () => {
@@ -628,40 +635,83 @@ window.addEventListener('load', () => {
     const gray = new cv.Mat();
     cv.cvtColor(rgba, gray, cv.COLOR_RGBA2GRAY);
 
-    if (!prevGray || !prevPoints) {
-      // FIRST FRAME: detect features
+    if (!prevGray || !prevPoints || prevPoints.rows === 0) {
+      // FIRST FRAME (or fully lost): detect features
       prevGray = gray.clone();
       prevPoints = new cv.Mat();
-      cv.goodFeaturesToTrack(prevGray, prevPoints, 300, 0.01, 10);
+      cv.goodFeaturesToTrack(prevGray, prevPoints, MAX_FEATURES, FEATURE_QUALITY, FEATURE_MIN_DIST);
+
+      debugFeaturePoints = [];
+      for (let i = 0; i < prevPoints.rows; i++) {
+        debugFeaturePoints.push({
+          x: prevPoints.data32F[i * 2],
+          y: prevPoints.data32F[i * 2 + 1]
+        });
+      }
     } else {
       // TRACK features
       const currPoints = new cv.Mat();
       const status = new cv.Mat();
       const err = new cv.Mat();
 
-      cv.calcOpticalFlowPyrLK(
-        prevGray,
-        gray,
-        prevPoints,
-        currPoints,
-        status,
-        err
-      );
+      cv.calcOpticalFlowPyrLK(prevGray, gray, prevPoints, currPoints, status, err);
 
-      debugFeaturePoints = [];
+      // Keep only successful tracks (status == 1)
+      const goodCurrFloats = [];
       for (let i = 0; i < status.rows; i++) {
         if (status.data[i] === 1) {
-          const x = currPoints.data32F[i * 2];
-          const y = currPoints.data32F[i * 2 + 1];
-          debugFeaturePoints.push({ x, y });
+          goodCurrFloats.push(
+            currPoints.data32F[i * 2],
+            currPoints.data32F[i * 2 + 1]
+          );
         }
       }
 
+      let mergedFloats = goodCurrFloats;
+      const goodCount = goodCurrFloats.length / 2;
+
+      // If we’re running low, detect more points on the current frame and merge them in.
+      if (goodCount < MIN_FEATURES) {
+        const want = Math.max(0, MAX_FEATURES - goodCount);
+        if (want > 0) {
+          const mask = new cv.Mat(gray.rows, gray.cols, cv.CV_8UC1, new cv.Scalar(255));
+          // Exclude areas around existing points so we add *new* features.
+          for (let i = 0; i < goodCount; i++) {
+            const x = goodCurrFloats[i * 2];
+            const y = goodCurrFloats[i * 2 + 1];
+            cv.circle(mask, new cv.Point(x, y), FEATURE_EXCLUSION_RADIUS, new cv.Scalar(0), -1);
+          }
+
+          const extra = new cv.Mat();
+          // mask parameter is optional; OpenCV.js supports it for goodFeaturesToTrack.
+          cv.goodFeaturesToTrack(gray, extra, want, FEATURE_QUALITY, FEATURE_MIN_DIST, mask);
+
+          if (extra.rows > 0) {
+            mergedFloats = goodCurrFloats.slice();
+            for (let i = 0; i < extra.rows; i++) {
+              mergedFloats.push(extra.data32F[i * 2], extra.data32F[i * 2 + 1]);
+            }
+          }
+
+          extra.delete();
+          mask.delete();
+        }
+      }
+
+      debugFeaturePoints = [];
+      for (let i = 0; i < mergedFloats.length; i += 2) {
+        debugFeaturePoints.push({ x: mergedFloats[i], y: mergedFloats[i + 1] });
+      }
+
+      // Update tracking state to only the surviving + newly detected points
+      const nextPoints = mergedFloats.length
+        ? cv.matFromArray(mergedFloats.length / 2, 1, cv.CV_32FC2, mergedFloats)
+        : new cv.Mat(0, 1, cv.CV_32FC2);
+
       prevGray.delete();
       prevPoints.delete();
-
       prevGray = gray.clone();
-      prevPoints = currPoints.clone();
+      prevPoints = nextPoints;
 
       currPoints.delete();
       status.delete();
