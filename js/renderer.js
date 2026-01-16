@@ -23,25 +23,6 @@ export class ARRenderer {
     // Video background quad
     this.videoTexture = null;
     this.bgMesh = null;
-
-    // Grid plane (initially disabled)
-    this.gridPlane = null;
-    this._initGridPlane();
-  }
-
-  _initGridPlane() {
-    const size = 1.5;    // 1.5 meters approx
-    const divisions = 15;
-
-    const gridHelper = new THREE.GridHelper(size, divisions);
-    gridHelper.rotation.x = -Math.PI / 2; // lie flat on XZ
-
-    const plane = new THREE.Group();
-    plane.add(gridHelper);
-
-    plane.visible = false; // hidden until we have a plane
-    this.gridPlane = plane;
-    this.scene.add(this.gridPlane);
   }
 
   setVideoTexture(video) {
@@ -55,31 +36,6 @@ export class ARRenderer {
     const mesh = new THREE.Mesh(geometry, material);
   
     this.scene.add(mesh);
-  }
-
-  /**
-   * Update grid plane transform from plane pose:
-   * planePose = { position: [x,y,z], normal: [nx,ny,nz] }
-   */
-  updatePlanePose(planePose) {
-    if (!planePose) {
-      this.gridPlane.visible = false;
-      return;
-    }
-
-    this.gridPlane.visible = true;
-
-    const [px, py, pz] = planePose.position;
-    const [nx, ny, nz] = planePose.normal;
-
-    // position
-    this.gridPlane.position.set(px, py, pz);
-
-    // orient Y-up of gridPlane to align with plane normal
-    const normal = new THREE.Vector3(nx, ny, nz).normalize();
-    const up = new THREE.Vector3(0, 1, 0);
-    const quat = new THREE.Quaternion().setFromUnitVectors(up, normal);
-    this.gridPlane.quaternion.copy(quat);
   }
 
   render() {

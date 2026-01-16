@@ -67,20 +67,6 @@ html, body {
   font-weight: 600;
 }
 
-#setZeroBtn {
-  margin-left: 0.5rem;
-  padding: 0.4rem 0.8rem;
-  border-radius: 6px;
-  border: none;
-  background: #2b7a2b;
-  color: #fff;
-  font-weight: 600;
-}
-
-#setZeroBtn[disabled] {
-  opacity: 0.45;
-}
-
 #toast {
   position: fixed;
   left: 50%;

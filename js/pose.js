@@ -88,28 +88,6 @@ function toCvPoint3f(points) {
   return matFromArray(points.length, 3, cvModule.CV_64F, data);
 }
 
-export function setWorldOriginFromPlane(planePoint) {
-  if (!planePoint || planePoint.x === undefined) {
-    console.warn("setWorldOriginFromPlane called with invalid planePoint:", planePoint);
-    return;
-  }
-
-  worldOrigin = {
-    position: {
-      x: planePoint.x,
-      y: planePoint.y,
-      z: planePoint.z
-    },
-    rotation: {
-      yaw: 0,
-      pitch: 0,
-      roll: 0
-    }
-  };
-
-  console.log("World origin set from plane:", worldOrigin);
-}
-
 export function setWorldOrigin() {
   if (!rawPose) return;
 
